@@ -34,8 +34,12 @@ go install .
 To summarize Go code in a directory:
 
 ```bash
-gosummarize /path/to/go/project
+gosummarize [options] /path/to/go/project
 ```
+
+### Options
+
+- `-t` : Ignore test files (files ending with `_test.go`)
 
 The tool will scan the directory recursively and print information about all exported declarations in each Go file, including their full signatures and documentation.
 
@@ -51,7 +55,7 @@ type Client struct {
     // Fields not shown
 }
 
-method (*Client) Connect() error
+func (*Client) Connect() error
     Connect establishes a connection to the server.
 
 <<<FILE_END>>> /path/to/file.go

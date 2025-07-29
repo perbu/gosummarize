@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -13,13 +14,18 @@ import (
 )
 
 // findGoFiles returns a slice of all Go files in the given directory and its subdirectories
-func findGoFiles(root string) ([]string, error) {
+// If ignoreTests is true, files ending with _test.go will be ignored
+func findGoFiles(root string, ignoreTests bool) ([]string, error) {
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ".go") {
+			// Skip test files if ignoreTests flag is set
+			if ignoreTests && strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
 			files = append(files, path)
 		}
 		return nil
@@ -60,27 +66,41 @@ func processDeclaration(decl ast.Decl, file *ast.File, fset *token.FileSet) {
 				doc = fn.Doc.Text()
 			}
 
-			// Determine if it's a method or function
-			var funcType string
-			if fn.Recv == nil {
-				funcType = "func"
-			} else {
-				funcType = "method"
-			}
+			// We no longer need to distinguish between method/func in the output
+			// as we're using the standard Go syntax format for both
 
 			// Get the full function signature
 			var buf bytes.Buffer
 			printer.Fprint(&buf, fset, fn.Type)
 			signature := buf.String()
 
-			// For methods, add the receiver
+			// Remove "func" from the signature as we'll add it manually
+			signature = strings.TrimPrefix(signature, "func")
+
+			// For methods, add the receiver and display in a format similar to source code
 			if fn.Recv != nil {
-				var recvBuf bytes.Buffer
-				printer.Fprint(&recvBuf, fset, fn.Recv)
-				recv := recvBuf.String()
-				fmt.Printf("%s %s%s %s\n", funcType, recv, fn.Name.Name, signature)
+				// Let's manually extract the receiver details
+				recvList := fn.Recv.List[0] // Get the first (and only) receiver parameter
+
+				// Get the type of the receiver
+				var typeNameBuf bytes.Buffer
+				printer.Fprint(&typeNameBuf, fset, recvList.Type)
+				recvType := typeNameBuf.String()
+
+				// Get the variable name of the receiver (if any)
+				recvVarName := ""
+				if len(recvList.Names) > 0 {
+					recvVarName = recvList.Names[0].Name
+				}
+
+				// Format like Go source: func (s *Type) Method()
+				if recvVarName != "" {
+					fmt.Printf("func (%s %s) %s%s\n", recvVarName, recvType, fn.Name.Name, signature)
+				} else {
+					fmt.Printf("func (%s) %s%s\n", recvType, fn.Name.Name, signature)
+				}
 			} else {
-				fmt.Printf("%s %s%s\n", funcType, fn.Name.Name, signature)
+				fmt.Printf("func %s%s\n", fn.Name.Name, signature)
 			}
 
 			if doc != "" {
@@ -182,23 +202,29 @@ func processDeclaration(decl ast.Decl, file *ast.File, fset *token.FileSet) {
 }
 
 func main() {
+	// Define command-line flags
+	ignoreTests := flag.Bool("t", false, "Ignore test files (files ending with _test.go)")
+	flag.Parse()
+
 	// Get the directory path from command line arguments
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: gosummarize <directory>")
+	args := flag.Args()
+	if len(args) < 1 {
+		fmt.Println("Usage: gosummarize [-t] <directory>")
+		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	dirPath := os.Args[1]
+	dirPath := args[0]
 
-	// Find all Go files in the directory
-	files, err := findGoFiles(dirPath)
+	// Find all Go files in the directory and subdirectories
+	files, err := findGoFiles(dirPath, *ignoreTests)
 	if err != nil {
 		fmt.Printf("Error finding Go files: %v\n", err)
 		os.Exit(1)
 	}
 
 	if len(files) == 0 {
-		fmt.Println("No Go files found in the specified directory")
+		fmt.Println("No Go files found in the specified directory or its subdirectories")
 		os.Exit(0)
 	}
 

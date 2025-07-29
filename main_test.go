@@ -21,7 +21,9 @@ func TestFindGoFiles(t *testing.T) {
 	files := []string{
 		filepath.Join(tmpDir, "file1.go"),
 		filepath.Join(tmpDir, "file2.go"),
-		filepath.Join(tmpDir, "subdir", "file3.go"),
+		filepath.Join(tmpDir, "file3_test.go"),
+		filepath.Join(tmpDir, "subdir", "file4.go"),
+		filepath.Join(tmpDir, "subdir", "file5_test.go"),
 		filepath.Join(tmpDir, "notgo.txt"),
 	}
 
@@ -46,16 +48,16 @@ func TestFindGoFiles(t *testing.T) {
 		}
 	}
 
-	// Test findGoFiles function
-	foundFiles, err := findGoFiles(tmpDir)
+	// Test findGoFiles function without ignoring test files
+	foundFiles, err := findGoFiles(tmpDir, false)
 	if err != nil {
 		t.Fatalf("findGoFiles failed: %v", err)
 	}
 
 	// Check if the correct number of Go files were found
-	expectedGoFiles := 3 // We created 3 .go files
+	expectedGoFiles := 5 // We created 5 .go files
 	if len(foundFiles) != expectedGoFiles {
-		t.Errorf("Expected to find %d Go files, but found %d", expectedGoFiles, len(foundFiles))
+		t.Errorf("Without -t flag: Expected to find %d Go files, but found %d", expectedGoFiles, len(foundFiles))
 	}
 
 	// Check if all found files have .go extension
@@ -63,6 +65,67 @@ func TestFindGoFiles(t *testing.T) {
 		if !strings.HasSuffix(file, ".go") {
 			t.Errorf("Found non-Go file: %s", file)
 		}
+	}
+
+	// Test findGoFiles function while ignoring test files
+	foundFiles, err = findGoFiles(tmpDir, true)
+	if err != nil {
+		t.Fatalf("findGoFiles with ignoreTests=true failed: %v", err)
+	}
+
+	// Check if the correct number of Go files were found
+	expectedNonTestGoFiles := 3 // We created 3 non-test .go files
+	if len(foundFiles) != expectedNonTestGoFiles {
+		t.Errorf("With -t flag: Expected to find %d non-test Go files, but found %d", expectedNonTestGoFiles, len(foundFiles))
+	}
+
+	// Check if all found files have .go extension and none are test files
+	for _, file := range foundFiles {
+		if !strings.HasSuffix(file, ".go") {
+			t.Errorf("Found non-Go file: %s", file)
+		}
+		if strings.HasSuffix(file, "_test.go") {
+			t.Errorf("Found test file despite ignoreTests=true: %s", file)
+		}
+	}
+}
+
+// TestEmptyDirectoryWithSubdirs tests that findGoFiles works with empty top-level directories
+func TestEmptyDirectoryWithSubdirs(t *testing.T) {
+	// Create a temporary directory structure
+	tmpDir, err := os.MkdirTemp("", "gosummarize-empty-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a nested subdirectory structure with Go files only in subdirectories
+	nestedDir := filepath.Join(tmpDir, "empty", "nested")
+	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+		t.Fatalf("Failed to create nested directories: %v", err)
+	}
+
+	// Create a Go file in the nested directory only
+	nestedGoFile := filepath.Join(nestedDir, "nested.go")
+	if err := os.WriteFile(nestedGoFile, []byte("package nested"), 0644); err != nil {
+		t.Fatalf("Failed to create Go file in nested directory: %v", err)
+	}
+
+	// Test finding files from the empty top directory
+	emptyDir := filepath.Join(tmpDir, "empty")
+	foundFiles, err := findGoFiles(emptyDir, false)
+	if err != nil {
+		t.Fatalf("findGoFiles failed on empty directory: %v", err)
+	}
+
+	// Should find 1 Go file in the nested subdirectory
+	if len(foundFiles) != 1 {
+		t.Errorf("Expected to find 1 Go file in subdirectories, but found %d", len(foundFiles))
+	}
+
+	// Verify the file found is actually our nested Go file
+	if len(foundFiles) > 0 && foundFiles[0] != nestedGoFile {
+		t.Errorf("Expected to find %s, but found %s", nestedGoFile, foundFiles[0])
 	}
 }
 
@@ -97,8 +160,8 @@ func TestSummarizeFile(t *testing.T) {
 		"PublicStruct",
 		"PublicInterface",
 		"PublicFunction",
-		"ProcessData",
-		"DoSomething",
+		"func (s *StructWithInterface) ProcessData",
+		"func (s *StructWithInterface) DoSomething",
 		"PublicConst",
 		"FirstConst",
 		"SecondConst",
